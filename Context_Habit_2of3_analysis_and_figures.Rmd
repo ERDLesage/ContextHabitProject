@@ -1,0 +1,189 @@
+---
+title: "Context habit project: analyses & figures"
+author: "ERDLesage"
+date: "07/03/2022"
+output: html_document
+---
+
+## Markdown / Script 2 of 3: 
+Loads preprocessed dataframes and does analysis and figures
+
+Notes: 
+- First set a local directory for data/output and toggle whether you would like to (over)write figures. 
+- Needs the R workspace file created by the preprocessing script. 
+- The script perfoms  analyses and writes figures. (The output from the analyses is not written.)
+- generally all the data needed is either in the preprocessed data (R workspace created by first script) or created locally to the analysis/figure. 
+- The analyses and figures for the criterion training blocks (both initial, and the first block on Day4) are handled by a third script.
+
+```{r setup, include=FALSE}
+rm(list = ls()) # clear wm 
+# Set your paths 
+datadir = "C:/Users/elise.000/OneDrive/Documents/Habit_Project/scripts_for_sharing/analysis_and_output"
+outputdir = "C:/Users/elise.000/OneDrive/Documents/Habit_Project/scripts_for_sharing/analysis_and_output"
+library(doBy)
+library(ggplot2)
+library(gtable)
+library(grid)
+library(gridExtra)
+library(afex)
+library(phia)
+library(lattice)
+library(latticeExtra)
+library(dplyr)
+library(tidyr)
+library(Rmisc)
+library(lmerTest)
+library(RcppRoll)
+library(scales)
+library(minpack.lm)
+library(svglite)
+library(effectsize)
+library(MuMIn)
+# function to calculate pseudo-effect sizes (http://bbolker.github.io/mixedmodels-misc/glmmFAQ.html#how-do-i-compute-a-coefficient-of-determination-r2-or-an-analogue-for-glmms)
+r2.corr.mer <- function(m) {
+  lmfit <-  lm(model.response(model.frame(m)) ~ fitted(m))
+  summary(lmfit)$r.squared
+}
+
+# load workspace
+setwd(datadir)
+load("Context_habit_processed_dataframes.RData")
+
+# Switch writing (figures) to output directory on (TRUE) or off (FALSE) 
+write_it = TRUE
+```
+# Analyses
+## Overtraining: change in accuracy, rt, sd(rt)
+
+Wilcoxon signed rank tests. Do them in both directions, report the smallest test statistic.
+
+```{r overtraining, performance changes, echo=FALSE}
+wilcox.test(ot_summary_wide_acc$Day_Block_1_3, ot_summary_wide_acc$Day_Block_3_6, paired = TRUE, alternative = "two.sided")
+#wilcox.test(ot_summary_wide_acc$Day_Block_3_6, ot_summary_wide_acc$Day_Block_1_3, paired = TRUE, alternative = "two.sided")
+# proportion higher/lower
+prop_higher <- ifelse((ot_summary_wide_acc$Day_Block_1_3-ot_summary_wide_acc$Day_Block_3_6)>0, 1, 0)
+#wilcox.test(ot_summary_wide_rt$Day_Block_1_3, ot_summary_wide_rt$Day_Block_3_6, paired = TRUE, alternative = "two.sided")
+wilcox.test(ot_summary_wide_rt$Day_Block_3_6, ot_summary_wide_rt$Day_Block_1_3, paired = TRUE, alternative = "two.sided")
+#wilcox.test(ot_summary_wide_sdrt$Day_Block_1_3, ot_summary_wide_sdrt$Day_Block_3_6, paired = TRUE, alternative = "two.sided")
+wilcox.test(ot_summary_wide_sdrt$Day_Block_3_6, ot_summary_wide_sdrt$Day_Block_1_3, paired = TRUE, alternative = "two.sided")
+
+```
+
+## Devaluation-sensitivity 
+### Devaluation-sensitivity (no WM load)
+#### Accuracy
+```{r devaluation no load accuracy, echo=FALSE}
+# relevel congruency and group
+RL_deval$Congruency <- relevel(as.factor(RL_deval$Congruency), ref="Valued")
+RL_deval_wm$Congruency <- relevel(as.factor(RL_deval_wm$Congruency), ref="Valued")
+RL_alldeval$Congruency <- relevel(as.factor(RL_alldeval$Congruency), ref="Valued")
+RL_deval$Group <- relevel(as.factor(RL_deval$Group), ref="CT")
+RL_deval_wm$Group <- relevel(as.factor(RL_deval_wm$Group), ref="CT")
+RL_alldeval$Group <- relevel(as.factor(RL_alldeval$Group), ref="CT")
+
+# accuracy
+Fit5_noWML = glmer(OptimalChoice ~ (1|Subject)+Congruency*Group, data=RL_deval, family=binomial) #
+#summary(Fit5_noWML)
+Anova(Fit5_noWML)
+testInteractions(Fit5_noWML, pairwise=c("Congruency","Group"))
+r.squaredGLMM(Fit5_noWML)
+r2.corr.mer(Fit5_noWML)
+```
+#### Response time
+```{r devaluation no load RT, echo=FALSE}
+FitRT_noWML = lmer(RT ~ (1|Subject)+Congruency*Group, data=filter(RL_deval, OptimalChoice==1)) #
+#summary(FitRT_noWML)
+Anova(FitRT_noWML)
+testInteractions(FitRT_noWML, pairwise=c("Congruency","Group"))
+testInteractions(FitRT_noWML, fixed="Group", pairwise=c("Congruency"))
+testInteractions(FitRT_noWML, pairwise="Group")
+testInteractions(FitRT_noWML, fixed="Group", across=c("Congruency"))
+```
+### Devaluation-sensitivity: effect of WM load
+#### First off, did they perform (equally) OK on the WM task?
+- Load (b/c individually tailored) does not differ according to group.
+- Performance is good.
+- Missed responses also don't differ.
+```{r devaluation: effect of WM, echo=FALSE}
+wm_grp_nodiff <-lm(WM_used~Group, data=LPS)
+anova(wm_grp_nodiff)
+wm_load_sizes <- summarySE(LPS, measurevar="WM_used", groupvars = c("Group"), na.rm="TRUE")
+
+# performance on the WM task itself
+wmperf_grp_nodiff <- lm(WM_response~Group, data = filter(RL_deval_wm, WM_response>0, WM_correct!=666))
+anova(wmperf_grp_nodiff)
+
+# fyi, just to see if the number of missed responses differs between grps (it doesn't, and is ~2.3%)
+RL_deval_wm$WM_Missed <-0
+RL_deval_wm$WM_Missed[RL_deval_wm$WM_correct==666]<-1
+WM_missed <- summarySE(RL_deval_wm, measurevar = "WM_Missed", groupvars = c("Group"), na.rm="TRUE")
+wmmiss_grp_nodiff <- lm(WM_Missed~Group, data = RL_deval_wm)
+anova(wmmiss_grp_nodiff)
+```
+#### Accuracy
+- Same group/congruency differences under load
+- No effect of load on congruency effect
+```{r devaluation: effect of load on accuracy, echo=FALSE}
+Fit5 = glmer(OptimalChoice ~ (1|Subject)+Congruency*Group*WM_Load, data=filter(RL_alldeval, WM_correct!=0), family=binomial, glmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 100000))) # 
+Anova(Fit5)
+#summary(Fit5)
+# same group/congruency differences under load
+testInteractions(Fit5, fixed=c("WM_Load"), pairwise=c("Group","Congruency"))
+# no effect of load on congruency effect
+testInteractions(Fit5, fixed="Group", pairwise=c("WM_Load", "Congruency")) 
+```
+#### Response time
+```{r devaluation: effect of load on RT, echo=FALSE}
+FitRT = lmer(RT ~ (1|Subject)+Congruency*Group*WM_Load, data=filter(RL_alldeval, OptimalChoice==1, WM_correct!=0)) # 
+Anova(FitRT)
+#summary(FitRT)
+#testInteractions(FitRT,pairwise=c("Group", "Congruency", "WM_Load"))
+testInteractions(FitRT,fixed=c("Group"), pairwise=c("WM_Load", "Congruency"))
+```
+
+### Devaluation-insensitivity in de WM load block
+#### Accuracy
+```{r DI under load: accuracy, echo=FALSE}
+Fit5_WML = glmer(OptimalChoice ~ (1|Subject)+Congruency*Group, data=filter(RL_deval_wm, WM_correct !=0), family=binomial) #
+#summary(Fit5_WML)
+Anova(Fit5_WML)
+testInteractions(Fit5_WML, pairwise=c("Congruency","Group"))
+```
+#### Response time
+```{r DI under load, RT, echo=FALSE}
+FitRT_WML = lmer(RT ~ (1|Subject)+Congruency*Group, data=filter(RL_deval_wm, OptimalChoice==1, WM_correct!=0)) #
+#summary(FitRT_WML)
+Anova(FitRT_WML)
+testInteractions(FitRT_WML, pairwise=c("Congruency","Group"))
+testInteractions(FitRT_WML, fixed="Group", pairwise=c("Congruency"))
+testInteractions(FitRT_WML, pairwise="Group")
+```
+## Does MB/MF balance (w) predict outcome-insensitivity?
+Models are fitted using matlab scripts (see osf page). Resulting parameters from the winning model are read in and used here.
+
+### w does not differ between groups
+```{r w across groups, echo=FALSE}
+LPS$Group <- as.factor(LPS$Group)
+grp_w <- kruskal.test(w ~ Group, data = LPS)
+grp_w
+```
+### Actual regression
+```{r w regression, echo=FALSE}
+LPS$Group <- relevel(as.factor(LPS$Group), ref="CT")
+test <- lm(deval_diff_acc~w*Group, data=LPS)
+anova(test)
+#summary(test)
+testInteractions(test, pairwise = "Group")
+```
+### Non-parametric correlations per group 
+Non-parametric because w is very skewed.
+Note that an exact p-value is not possible because of many datapoints w same values
+```{r within-group correlations, echo=FALSE}
+LPS_EOT <- filter(LPS, Group== "EOT")
+LPS_COT <- filter(LPS, Group== "COT")
+LPS_CT <- filter(LPS, Group== "CT")
+cor.test(LPS_EOT$w, LPS_EOT$deval_diff_acc, method = "spearman")
+cor.test(LPS_COT$w, LPS_COT$deval_diff_acc, method = "spearman")
+cor.test(LPS_CT$w, LPS_CT$deval_diff_acc, method = "spearman")
+```
+# Figures
